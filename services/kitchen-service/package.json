@@ -1,0 +1,15 @@
+{
+  "name": "kitchen-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The kitchen screen. Owns the tickets table and publishes kitchen events.",
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "amqplib": "^2.0.1",
+    "fastify": "^5.12.0",
+    "postgres": "^3.4.9"
+  }
+}

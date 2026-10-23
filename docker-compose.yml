@@ -1,0 +1,156 @@
+# =============================================================================
+#  Burger Express - a fast food ordering system
+#
+#  Start everything with ONE command:
+#
+#      docker compose up --build
+#
+#  The database and RabbitMQ credentials default to app/app for local
+#  development only. Override them with POSTGRES_USER / POSTGRES_PASSWORD /
+#  RABBITMQ_USER / RABBITMQ_PASSWORD (for example in a .env file).
+#
+#  Only nginx has a published port (80). All the other services live on the
+#  internal Docker network and cannot be reached from outside.
+#
+#  Flow:
+#    customer -> nginx -> order-service -> RabbitMQ (order.created)
+#             -> kitchen-service (staff presses start/ready)
+#             -> RabbitMQ (kitchen.started / kitchen.ready)
+#             -> order-service + notification-service
+# =============================================================================
+name: burger-express
+
+services:
+  # ---------------------------------------------------------------- infra --
+  # One database called "restaurant". Every service creates its own table
+  # when it starts, so nobody has to run SQL by hand.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: restaurant
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d restaurant"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # RabbitMQ with one topic exchange called "restaurant".
+  # The management UI is in the image but its port is not published.
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-app}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-app}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # ------------------------------------------------------------- services --
+  # Owns the "products" table and seeds the menu on startup.
+  product-service:
+    build: ./services/product-service
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/restaurant
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # Owns the "orders" table.
+  order-service:
+    build: ./services/order-service
+    environment:
+      PORT: 3002
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/restaurant
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASSWORD:-app}@rabbitmq:5672
+      PRODUCT_SERVICE_URL: http://product-service:3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # Owns the "tickets" table. This is the screen the staff works on.
+  kitchen-service:
+    build: ./services/kitchen-service
+    environment:
+      PORT: 3003
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/restaurant
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASSWORD:-app}@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # Owns the "notifications" table and listens to every event.
+  notification-service:
+    build: ./services/notification-service
+    environment:
+      PORT: 3004
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/restaurant
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASSWORD:-app}@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3004/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- nginx --
+  # The only public port in the whole system. It is also the only gateway.
+  nginx:
+    build: ./nginx
+    ports:
+      - "80:80"
+    depends_on:
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      kitchen-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Burger Express</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: #f4f4f4;
+        color: #222;
+      }
+      h1 {
+        margin-top: 0;
+      }
+      .columns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+      }
+      .card {
+        background: #fff;
+        border-radius: 8px;
+        padding: 16px 20px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+        flex: 1 1 320px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 0;
+        border-bottom: 1px solid #eee;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        border-radius: 4px;
+        background: #d62828;
+        color: #fff;
+        padding: 6px 12px;
+        font-size: 14px;
+      }
+      button.small {
+        background: #555;
+        padding: 2px 9px;
+      }
+      input {
+        padding: 6px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+      .status {
+        font-weight: bold;
+      }
+      .ticket {
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 10px;
+        margin-bottom: 10px;
+      }
+      .muted {
+        color: #777;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Burger Express</h1>
+    <p class="muted">
+      Everything on this page goes through nginx on port 80, the only public way into the system.
+    </p>
+
+    <div class="columns">
+      <!-- ------------------------------------------------ CUSTOMER ------ -->
+      <div class="card">
+        <h2>Menu</h2>
+        <div id="menu"></div>
+
+        <p>
+          Your name:
+          <input id="customerName" maxlength="100" placeholder="Alex" />
+        </p>
+        <button onclick="placeOrder()">Place order</button>
+
+        <h3>Your order</h3>
+        <div id="orderBox" class="muted">No order yet.</div>
+      </div>
+
+      <!-- ------------------------------------------------- KITCHEN ------ -->
+      <div class="card">
+        <h2>Kitchen screen</h2>
+        <p class="muted">This is what the staff sees. The staff moves the order forward.</p>
+        <div id="tickets"></div>
+      </div>
+    </div>
+
+    <script>
+      // How many of each product the customer wants.
+      const basket = {};
+      let currentOrderId = null;
+
+      // Everything that comes from the API is escaped before it goes into innerHTML,
+      // so a customer name like "<img onerror=...>" cannot run code on the kitchen screen.
+      function esc(value) {
+        return String(value).replace(/[&<>"']/g, function (c) {
+          return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+        });
+      }
+
+      // ---------- menu ----------
+      async function loadMenu() {
+        const response = await fetch("/api/products");
+        const data = await response.json();
+
+        let html = "";
+        for (const product of data.products) {
+          html +=
+            '<div class="row"><span>' +
+            esc(product.name) +
+            " - " +
+            esc(product.price) +
+            " kr</span>" +
+            '<span><button class="small" onclick="change(\'' +
+            esc(product.id) +
+            "', -1)\">-</button> " +
+            '<b id="count-' +
+            esc(product.id) +
+            '">0</b> ' +
+            '<button class="small" onclick="change(\'' +
+            esc(product.id) +
+            "', 1)\">+</button></span></div>";
+        }
+        document.getElementById("menu").innerHTML = html;
+      }
+
+      function change(productId, amount) {
+        const now = basket[productId] || 0;
+        const next = now + amount;
+        basket[productId] = next < 0 ? 0 : next;
+        document.getElementById("count-" + productId).textContent = basket[productId];
+      }
+
+      // ---------- place an order ----------
+      async function placeOrder() {
+        const items = [];
+        for (const productId in basket) {
+          if (basket[productId] > 0) {
+            items.push({ productId: productId, quantity: basket[productId] });
+          }
+        }
+
+        if (items.length === 0) {
+          alert("Pick something from the menu first.");
+          return;
+        }
+
+        const response = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            customerName: document.getElementById("customerName").value,
+            items: items,
+          }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          alert("Could not place the order: " + JSON.stringify(data));
+          return;
+        }
+
+        currentOrderId = data.id;
+        showOrder(data, []);
+      }
+
+      // ---------- follow the order ----------
+      async function refreshOrder() {
+        if (currentOrderId === null) return;
+
+        const orderResponse = await fetch("/api/orders/" + encodeURIComponent(currentOrderId));
+        if (!orderResponse.ok) return;
+        const order = await orderResponse.json();
+
+        const noteResponse = await fetch("/api/notifications/" + encodeURIComponent(currentOrderId));
+        const notes = await noteResponse.json();
+
+        showOrder(order, notes.notifications);
+      }
+
+      function showOrder(order, notifications) {
+        let html =
+          "<p>Order <code>" +
+          esc(order.id) +
+          '</code><br>Status: <span class="status">' +
+          esc(order.status) +
+          "</span><br>Total: " +
+          esc(order.total) +
+          " kr</p><h4>Notifications</h4>";
+
+        if (!notifications || notifications.length === 0) {
+          html += '<p class="muted">No notifications yet.</p>';
+        } else {
+          html += "<ul>";
+          for (const note of notifications) {
+            html += "<li>" + esc(note.message) + "</li>";
+          }
+          html += "</ul>";
+        }
+
+        document.getElementById("orderBox").innerHTML = html;
+      }
+
+      // ---------- kitchen screen ----------
+      async function refreshTickets() {
+        const response = await fetch("/api/kitchen/tickets");
+        const data = await response.json();
+
+        if (data.tickets.length === 0) {
+          document.getElementById("tickets").innerHTML = '<p class="muted">No orders waiting.</p>';
+          return;
+        }
+
+        let html = "";
+        for (const ticket of data.tickets) {
+          html +=
+            '<div class="ticket"><b>' +
+            esc(ticket.customerName) +
+            "</b> - " +
+            esc(ticket.summary) +
+            '<br><span class="muted">' +
+            esc(ticket.status) +
+            "</span><br>";
+
+          if (ticket.status === "WAITING") {
+            html +=
+              "<button onclick=\"kitchenAction('" + esc(ticket.orderId) + "', 'start')\">Start cooking</button>";
+          } else {
+            html +=
+              "<button onclick=\"kitchenAction('" + esc(ticket.orderId) + "', 'ready')\">Food is ready</button>";
+          }
+          html += "</div>";
+        }
+        document.getElementById("tickets").innerHTML = html;
+      }
+
+      async function kitchenAction(orderId, action) {
+        const response = await fetch("/api/kitchen/tickets/" + encodeURIComponent(orderId) + "/" + action, {
+          method: "POST",
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          alert("The kitchen said no: " + error.error);
+        }
+        refreshTickets();
+        refreshOrder();
+      }
+
+      // Start the page and then refresh every 2 seconds.
+      loadMenu();
+      refreshTickets();
+      setInterval(function () {
+        refreshTickets();
+        refreshOrder();
+      }, 2000);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "burger-express",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Fast-food ordering backend. Start it with: docker compose up --build",
+  "scripts": {
+    "test": "bun test",
+    "test:unit": "bun test tests/unit",
+    "test:e2e": "bun test tests/e2e"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

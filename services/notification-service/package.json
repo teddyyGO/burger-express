@@ -1,0 +1,15 @@
+{
+  "name": "notification-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Listens to every event and saves a notification for the customer.",
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "amqplib": "^2.0.1",
+    "fastify": "^5.12.0",
+    "postgres": "^3.4.9"
+  }
+}

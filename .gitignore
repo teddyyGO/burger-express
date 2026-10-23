@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Local environment overrides (credentials)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Lockfile is not committed, Docker installs the deps at build time
+bun.lock
+bun.lockb
+
+# OS junk
+.DS_Store
+Thumbs.db

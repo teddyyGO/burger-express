@@ -1,0 +1,14 @@
+{
+  "name": "product-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Owns the products table and serves the menu.",
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "fastify": "^5.12.0",
+    "postgres": "^3.4.9"
+  }
+}

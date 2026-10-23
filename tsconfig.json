@@ -1,0 +1,14 @@
+{
+  "//": "Only used by the editor so it understands Bun globals (process, fetch, Buffer). Bun runs the .ts files directly, so nothing is compiled.",
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["bun"],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true
+  }
+}
